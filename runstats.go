@@ -7,13 +7,13 @@ import (
 
 	"fmt"
 
-	"github.com/influxdata/influxdb/client/v2"
+	"github.com/arekzelechowski/go-runtime-metrics/collector"
+	"github.com/influxdata/influxdb1-client/v2"
 	"github.com/pkg/errors"
-	"github.com/tevjef/go-runtime-metrics/collector"
 )
 
 const (
-	defaultHost               = "localhost:8086"
+	defaultAddr               = "http://localhost:8086"
 	defaultMeasurement        = "go.runtime"
 	defaultDatabase           = "stats"
 	defaultCollectionInterval = 10 * time.Second
@@ -24,9 +24,8 @@ const (
 var DefaultConfig = &Config{}
 
 type Config struct {
-	// InfluxDb host:port pair.
-	// Default is "localhost:8086".
-	Host string
+	// Default is "http://localhost:8086". http or https.
+	Addr string
 
 	// Database to write points to.
 	// Default is "stats" and is auto created
@@ -69,6 +68,11 @@ type Config struct {
 
 	// Default is DefaultLogger which exits when the library encounters a fatal error.
 	Logger Logger
+
+	// Set true to disable create database query. Usable if your user does not have an admin permissions.
+	DisableAutoCreate bool
+
+	CustomCollector collector.CustomCollector
 }
 
 func (config *Config) init() (*Config, error) {
@@ -80,8 +84,8 @@ func (config *Config) init() (*Config, error) {
 		config.Database = defaultDatabase
 	}
 
-	if config.Host == "" {
-		config.Host = defaultHost
+	if config.Addr == "" {
+		config.Addr = defaultAddr
 	}
 
 	if config.Measurement == "" {
@@ -116,7 +120,7 @@ func RunCollector(config *Config) (err error) {
 
 	// Make client
 	clnt, err := client.NewHTTPClient(client.HTTPConfig{
-		Addr:     "http://" + config.Host,
+		Addr:     config.Addr,
 		Username: config.Username,
 		Password: config.Password,
 	})
@@ -131,10 +135,12 @@ func RunCollector(config *Config) (err error) {
 	}
 
 	// Auto create database
-	_, err = queryDB(clnt, fmt.Sprintf("CREATE DATABASE \"%s\"", config.Database))
+	if !config.DisableAutoCreate {
+		_, err = queryDB(clnt, fmt.Sprintf("CREATE DATABASE \"%s\"", config.Database))
 
-	if err != nil {
-		config.Logger.Fatalln(err)
+		if err != nil {
+			config.Logger.Fatalln(err)
+		}
 	}
 
 	_runStats := &runStats{
@@ -159,6 +165,7 @@ func RunCollector(config *Config) (err error) {
 	_collector.EnableCPU = !config.DisableCpu
 	_collector.EnableMem = !config.DisableMem
 	_collector.EnableGC = !config.DisableGc
+	_collector.CustomCollector = config.CustomCollector
 
 	go _collector.Run()
 

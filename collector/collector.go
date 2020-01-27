@@ -30,6 +30,8 @@ type Collector struct {
 	Done <-chan struct{}
 
 	fieldsFunc FieldsFunc
+
+	CustomCollector CustomCollector
 }
 
 // New creates a new Collector that will periodically output statistics to fieldsFunc. It
@@ -96,6 +98,11 @@ func (c *Collector) collectStats() Fields {
 	fields.Goos = runtime.GOOS
 	fields.Goarch = runtime.GOARCH
 	fields.Version = runtime.Version()
+
+	if c.CustomCollector != nil {
+		c.CustomCollector.Collect()
+		fields.CustomData = c.CustomCollector.Values()
+	}
 
 	return fields
 }
@@ -195,6 +202,8 @@ type Fields struct {
 	Goarch  string `json:"-"`
 	Goos    string `json:"-"`
 	Version string `json:"-"`
+
+	CustomData map[string]interface{} `json:"-"`
 }
 
 func (f *Fields) Tags() map[string]string {
@@ -206,7 +215,7 @@ func (f *Fields) Tags() map[string]string {
 }
 
 func (f *Fields) Values() map[string]interface{} {
-	return map[string]interface{}{
+	res := map[string]interface{}{
 		"cpu.count":      f.NumCpu,
 		"cpu.goroutines": f.NumGoroutine,
 		"cpu.cgo_calls":  f.NumCgoCall,
@@ -241,4 +250,14 @@ func (f *Fields) Values() map[string]interface{} {
 		"mem.gc.count":        f.NumGC,
 		"mem.gc.cpu_fraction": float64(f.GCCPUFraction),
 	}
+
+	if f.CustomData == nil {
+		return res
+	}
+
+	for key, value := range f.CustomData {
+		res[key] = value
+	}
+
+	return res
 }
